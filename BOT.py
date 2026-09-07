@@ -7,23 +7,21 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 
 # =========================================================
-# توکن ربات (شما)
+# توکن ربات (همون روش ساده)
 # =========================================================
 TOKEN = "8892121107:AAEzUqfJGUc8Ncg6X-McmDerKTyl0ETblRc"
 
 # =========================================================
-# هدرهای درخواست (برای شبیه‌سازی مرورگر)
+# هدرهای درخواست (اصلاح شده)
 # =========================================================
 HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    ),
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
     "Accept-Language": "fa-IR,fa;q=0.9,en;q=0.8",
 }
 
-# آدرس‌های سایت TGJU
+# =========================================================
+# آدرس‌های TGJU (اصلاح شده)
+# =========================================================
 URLS = {
     "dollar": "https://www.tgju.org/profile/price_dollar_rl",
     "euro": "https://www.tgju.org/profile/price_eur",
@@ -31,7 +29,7 @@ URLS = {
 }
 
 # =========================================================
-# تنظیمات لاگ (برای مشاهده خطاها)
+# لاگ (برای دیدن خطاها)
 # =========================================================
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -40,7 +38,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =========================================================
-# تبدیل اعداد فارسی/عربی به انگلیسی
+# تبدیل اعداد فارسی به انگلیسی
 # =========================================================
 def normalize_digits(text: str) -> str:
     translation_table = str.maketrans(
@@ -49,75 +47,50 @@ def normalize_digits(text: str) -> str:
     )
     return text.translate(translation_table)
 
-# =========================================================
-# استخراج عدد از متن (با پشتیبانی از کاما و نقطه)
-# =========================================================
 def parse_number(text: str):
-    text = normalize_digits(text)
-    text = text.replace(",", "").replace("٬", "").replace(" ", "")
+    text = normalize_digits(text).replace(",", "").replace("٬", "").replace(" ", "")
     match = re.search(r"\d+(?:\.\d+)?", text)
     if not match:
         return None
-    value = match.group(0)
     try:
-        return float(value) if "." in value else int(value)
+        return float(match.group(0)) if "." in match.group(0) else int(match.group(0))
     except ValueError:
         return None
 
-# =========================================================
-# دریافت قیمت از صفحه TGJU
-# =========================================================
 def get_price_from_page(url: str):
     try:
-        response = requests.get(url, headers=HEADERS, timeout=20)
+        response = requests.get(url, headers=HEADERS, timeout=15)
         response.raise_for_status()
         soup = BeautifulSoup(response.text, "html.parser")
-
-        # جستجوی عبارت "نرخ فعلی"
         for element in soup.find_all(string=re.compile("نرخ فعلی|Last")):
-            parent_text = element.parent.get_text(" ", strip=True)
-            parent_text = normalize_digits(parent_text)
+            parent_text = normalize_digits(element.parent.get_text(" ", strip=True))
             match = re.search(r"(?:نرخ فعلی|Last)\s*[:：]?\s*([\d,٬]+(?:\.\d+)?)", parent_text)
             if match:
                 price = parse_number(match.group(1))
                 if price is not None:
                     return price
-
-        # روش پشتیبان: جستجوی کل صفحه
         full_text = normalize_digits(soup.get_text(" ", strip=True))
         match = re.search(r"نرخ فعلی\s*[:：]\s*([\d,٬]+(?:\.\d+)?)", full_text)
         if match:
             price = parse_number(match.group(1))
             if price is not None:
                 return price
-
-        raise ValueError("قیمت در صفحه پیدا نشد.")
+        raise ValueError("قیمت پیدا نشد.")
     except Exception as e:
-        logger.error(f"خطا در دریافت قیمت از {url}: {e}")
+        logger.error(f"خطا: {e}")
         return None
 
-# =========================================================
-# دریافت همه قیمت‌ها
-# =========================================================
 def get_all_prices():
     prices = {}
     for key, url in URLS.items():
         prices[key] = get_price_from_page(url)
     return prices
 
-# =========================================================
-# فرمت کردن اعداد با کاما
-# =========================================================
 def format_price(value):
     if value is None:
         return "❌ ناموجود"
-    if isinstance(value, float):
-        return f"{value:,.2f}"
-    return f"{value:,}"
+    return f"{value:,.2f}" if isinstance(value, float) else f"{value:,}"
 
-# =========================================================
-# ساخت دکمه‌های شیشه‌ای (منوی اصلی)
-# =========================================================
 def main_keyboard():
     keyboard = [
         [InlineKeyboardButton("💵 دلار", callback_data="dollar")],
@@ -127,103 +100,56 @@ def main_keyboard():
     ]
     return InlineKeyboardMarkup(keyboard)
 
-# =========================================================
-# ساخت پیام قیمت‌ها
-# =========================================================
 def create_price_message(prices):
     now = datetime.now().strftime("%H:%M:%S")
-    dollar = format_price(prices.get("dollar"))
-    euro = format_price(prices.get("euro"))
-    gold = format_price(prices.get("gold"))
     return (
-        "📊 <b>قیمت لحظه‌ای بازار</b>\n"
-        "━━━━━━━━━━━━━━━━━━\n\n"
-        f"💵 <b>دلار آزاد:</b>\n"
-        f" {dollar} ریال\n\n"
-        f"💶 <b>یورو:</b>\n"
-        f" {euro} ریال\n\n"
-        f"🥇 <b>طلای ۱۸ عیار:</b>\n"
-        f" {gold} ریال\n\n"
+        "📊 <b>قیمت لحظه‌ای بازار</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+        f"💵 <b>دلار آزاد:</b>\n {format_price(prices.get('dollar'))} ریال\n\n"
+        f"💶 <b>یورو:</b>\n {format_price(prices.get('euro'))} ریال\n\n"
+        f"🥇 <b>طلای ۱۸ عیار:</b>\n {format_price(prices.get('gold'))} ریال\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
-        f"🕐 زمان بروزرسانی: {now}\n"
-        "📌 منبع: TGJU"
+        f"🕐 زمان بروزرسانی: {now}\n📌 منبع: TGJU"
     )
 
-# =========================================================
-# هندلر /start
-# =========================================================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "👋 سلام!\n\n"
-        "به ربات قیمت‌یابی خوش آمدی.\n"
-        "یکی از گزینه‌های زیر را انتخاب کن:",
+        "👋 سلام! به ربات قیمت‌یابی خوش آمدی.\nیکی از گزینه‌های زیر را انتخاب کن:",
         reply_markup=main_keyboard(),
         parse_mode="HTML",
     )
 
-# =========================================================
-# نمایش قیمت‌ها
-# =========================================================
 async def show_prices(query, price_type=None):
     prices = get_all_prices()
-
-    if price_type is None:  # نمایش همه
+    if price_type is None:
         text = create_price_message(prices)
     else:
-        names = {"dollar": "💵 دلار آزاد", "euro": "💶 یورو", "gold": "🥇 طلای ۱۸ عیار"}
-        unit = {"dollar": "ریال", "euro": "ریال", "gold": "ریال / گرم"}
-        name = names.get(price_type, "نامشخص")
-        price = format_price(prices.get(price_type))
-        unit_text = unit.get(price_type, "")
+        names = {"dollar": "💵 دلار", "euro": "💶 یورو", "gold": "🥇 طلا"}
+        unit = {"dollar": "ریال", "euro": "ریال", "gold": "ریال/گرم"}
         text = (
-            f"<b>{name}</b>\n"
-            "━━━━━━━━━━━━━━━━━━\n\n"
-            f"💰 قیمت فعلی:\n"
-            f"<b>{price}</b> {unit_text}\n\n"
-            f"🕐 بروزرسانی: {datetime.now().strftime('%H:%M:%S')}\n"
-            "📌 منبع: TGJU"
+            f"<b>{names[price_type]}</b>\n━━━━━━━━━━━━━━━━━━\n\n"
+            f"💰 قیمت: <b>{format_price(prices.get(price_type))}</b> {unit[price_type]}\n\n"
+            f"🕐 {datetime.now().strftime('%H:%M:%S')}"
         )
+    await query.edit_message_text(text=text, parse_mode="HTML", reply_markup=main_keyboard())
 
-    await query.edit_message_text(
-        text=text,
-        parse_mode="HTML",
-        reply_markup=main_keyboard(),
-    )
-
-# =========================================================
-# هندلر دکمه‌ها
-# =========================================================
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    data = query.data
-
-    if data == "all":
+    if query.data == "all":
         await show_prices(query)
-    elif data in ("dollar", "euro", "gold"):
-        await show_prices(query, data)
+    else:
+        await show_prices(query, query.data)
 
-# =========================================================
-# هندلر خطاهای ناشناخته
-# =========================================================
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"خطا: {context.error}")
 
-# =========================================================
-# تابع اصلی
-# =========================================================
 def main():
+    print("ربات قیمت‌یابی روشن شد ✅")
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_error_handler(error_handler)
-
-    print("🤖 ربات قیمت‌یابی روشن شد...")
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
-# =========================================================
-# اجرا
-# =========================================================
 if __name__ == "__main__":
     main()
